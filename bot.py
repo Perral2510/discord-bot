@@ -9,6 +9,10 @@ import traceback
 import aiohttp
 import discord
 
+from server import start_keep_alive
+
+start_keep_alive() # Chạy port giả ở luồng ẩn
+
 # --- Logging setup ---
 logging.basicConfig(
     level=logging.INFO,
