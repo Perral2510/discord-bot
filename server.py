@@ -6,10 +6,10 @@ class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is alive!")
+        self.wfile.write(b"Bot is online!")
 
     def log_message(self, format, *args):
-        return # Tắt log HTTP rác
+        return  # Tắt log HTTP rác
 
 def run_dummy_server():
     port = int(os.getenv("PORT", 8080))
