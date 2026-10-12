@@ -283,6 +283,32 @@ class HttpSessionTests(unittest.IsolatedAsyncioTestCase):
         opened.closed = True
 
 
+class HealthServerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self):
+        await bot.stop_health_server()
+
+    async def test_health_handler_returns_ok_json(self):
+        response = Mock()
+        with patch.object(bot.web, "json_response", return_value=response) as json_response:
+            result = await bot._health_handler(Mock())
+        self.assertIs(result, response)
+        json_response.assert_called_once_with(
+            {"status": "ok", "service": "discord-llm-bot"}
+        )
+
+    async def test_start_health_server_cleans_up_when_bind_fails(self):
+        runner = SimpleNamespace(setup=AsyncMock(), cleanup=AsyncMock())
+        with (
+            patch.object(bot.web, "AppRunner", return_value=runner),
+            patch.object(bot.web, "TCPSite", side_effect=OSError("port in use")),
+        ):
+            with self.assertRaisesRegex(OSError, "port in use"):
+                await bot.start_health_server()
+        runner.setup.assert_awaited_once()
+        runner.cleanup.assert_awaited_once()
+        self.assertIsNone(bot._health_runner)
+
+
 class QueryLlmTests(unittest.IsolatedAsyncioTestCase):
     def response(self, *, status=200, data=None, text="error"):
         response = SimpleNamespace(

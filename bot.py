@@ -9,6 +9,7 @@ import traceback
 from collections import deque
 
 import aiohttp
+from aiohttp import web
 import discord
 
 # --- Logging setup ---
@@ -76,6 +77,11 @@ USER_COOLDOWN_SECONDS = max(0, _int_env("USER_COOLDOWN_SECONDS", 5))
 # Maximum active requests across this process; each user gets at most one.
 MAX_CONCURRENT_REQUESTS = max(1, _int_env("MAX_CONCURRENT_REQUESTS", 1))
 API_TIMEOUT_SECONDS = 120
+# Render Web Services require the process to listen on the assigned PORT. The
+# Discord gateway itself is outbound-only, so this tiny health server keeps the
+# service discoverable without changing any bot behaviour.
+HTTP_HOST = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
+HTTP_PORT = _int_env("PORT", 10000)
 # A normal gateway interruption resumes once. If one Discord session rapidly
 # disconnects over and over, abandon it so the supervisor can IDENTIFY a fresh
 # session (often on a different gateway host) instead of resuming forever.
@@ -149,6 +155,7 @@ MEMBERSHIP_CACHE_SECONDS = 300.0
 # Creating a new ClientSession per request (the old code) spins up a new
 # TCP connector and SSL context each time, which is wasteful.
 _http_session: aiohttp.ClientSession | None = None
+_health_runner: web.AppRunner | None = None
 
 
 async def get_http_session() -> aiohttp.ClientSession:
@@ -161,6 +168,41 @@ async def get_http_session() -> aiohttp.ClientSession:
             headers=headers,
         )
     return _http_session
+
+
+async def _health_handler(request: web.Request) -> web.Response:
+    """Return a lightweight readiness response for Render and uptime checks."""
+    return web.json_response({"status": "ok", "service": "discord-llm-bot"})
+
+
+async def start_health_server() -> web.AppRunner:
+    """Bind the Render port and return its runner for later cleanup."""
+    global _health_runner
+    app = web.Application()
+    app.add_routes([
+        web.get("/", _health_handler),
+        web.get("/healthz", _health_handler),
+    ])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    try:
+        site = web.TCPSite(runner, HTTP_HOST, HTTP_PORT)
+        await site.start()
+    except Exception:
+        await runner.cleanup()
+        raise
+    _health_runner = runner
+    log.info("🌐 Health server listening on http://%s:%d", HTTP_HOST, HTTP_PORT)
+    return runner
+
+
+async def stop_health_server() -> None:
+    """Stop the health server, if it was started."""
+    global _health_runner
+    if _health_runner is not None:
+        await _health_runner.cleanup()
+        _health_runner = None
+        log.info("Health server closed.")
 
 
 def strip_reasoning(text: str) -> str:
@@ -725,6 +767,8 @@ async def run_supervised() -> None:
             pass  # add_signal_handler isn't available on some platforms (Windows)
 
     try:
+        if not stop.is_set():
+            await start_health_server()
         while not stop.is_set():
             started_at = loop.time()
             recycle_requested = asyncio.Event()
@@ -763,6 +807,7 @@ async def run_supervised() -> None:
     finally:
         if bot is not None and not bot.is_closed():
             await bot.close()
+        await stop_health_server()
         await _close_http_session()
         log.info("Shutdown complete.")
 

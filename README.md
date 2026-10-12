@@ -58,6 +58,12 @@ container image — so it's easy to read, audit, and run anywhere Docker runs.
    pinged: `@everyone`/`@here`, roles, other bots, users outside the
    conversation, and the reply-author ping are always suppressed.
 
+The process also serves a small HTTP health endpoint at `/healthz` (and `/`) on
+`0.0.0.0:$PORT`. This is required when deploying the bot as a Render **Web
+Service**, because Discord uses an outbound gateway connection and otherwise no
+port would be detected. Render supplies `PORT` automatically; it defaults to
+`10000` for local/container runs.
+
 By default, only **one request at a time** is processed across all channels and
 servers in this bot process. `MAX_CONCURRENT_REQUESTS` can raise that limit, but
 each user is always limited to one active request, even with cooldown disabled.
@@ -91,6 +97,7 @@ All configuration is via environment variables. Copy
 | Variable            | Required | Default                                | Description |
 | ------------------- | :------: | -------------------------------------- | ----------- |
 | `DISCORD_TOKEN`     | ✅       | —                                      | Bot token from the [Discord Developer Portal]. The bot exits if this is unset. |
+| `PORT`              |          | `10000`                                | HTTP health server port. Render sets this automatically. |
 | `API_BASE_URL`      |          | `http://llama-server:8080/v1`          | Base URL of the OpenAI-compatible API. `/chat/completions` is appended to it. |
 | `API_KEY`           |          | *(empty)*                              | API key sent as an `Authorization: Bearer <key>` header. Leave empty for unauthenticated servers. |
 | `MODEL_NAME`        |          | `default`                              | Model name sent in the request body. |
